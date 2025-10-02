@@ -1,3 +1,13 @@
+"""Main entrypoint for the AI Guard Agent demo.
+
+Responsibilities:
+- Spin up the ASR worker that listens for an activation phrase.
+- Provide a simple webcam sanity test ("--camera-test").
+- Log state transitions from the `StateManager`.
+
+This file intentionally keeps orchestration simple and defers
+speech handling to `ASRWorker` and state transitions to `StateManager`.
+"""
 # src/main.py
 import time
 import argparse
@@ -7,10 +17,26 @@ from src.state_manager import StateManager
 from src.asr_worker import ASRWorker
 
 def on_state_change(old, new):
+    """Callback invoked whenever the `StateManager` changes state.
+
+    Parameters
+    ----------
+    old : State
+        Previous state value.
+    new : State
+        New state value.
+    """
     print(f"[Main] state callback: {old.value} -> {new.value}")
     # For Milestone 1 we just log. Later, trigger other actions (TTS/welcome/etc.)
 
 def camera_test():
+    """Open the default webcam and display frames until 'q' is pressed.
+
+    Returns
+    -------
+    bool
+        True if the camera opened successfully; False otherwise.
+    """
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("❌ Cannot open webcam (index 0). Check device or change index.")
@@ -29,6 +55,13 @@ def camera_test():
     return True
 
 def main(camera_test_only=False):
+    """Application entry.
+
+    Parameters
+    ----------
+    camera_test_only : bool
+        If True, run the webcam test and exit. Otherwise, start ASR background worker.
+    """
     sm = StateManager()
     sm.register_callback(on_state_change)
 
