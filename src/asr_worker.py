@@ -79,7 +79,11 @@ class ASRWorker:
                         tmp_path = f.name
 
                     try:
-                        # transcribe via whisper with CPU-friendly settings
+                        # Transcribe via Whisper with CPU-friendly settings.
+                        # Notes:
+                        # - temperature=0.0 nudges decoding towards most likely output
+                        # - no_speech/logprob thresholds help filter accidental captures
+                        # - condition_on_previous_text=False reduces cascading errors across chunks
                         res = self.model.transcribe(
                             tmp_path,
                             language="en",
@@ -91,7 +95,8 @@ class ASRWorker:
                         text = res.get("text", "").lower().strip()
                         print(f"[ASR] Transcribed: '{text}'")
 
-                        # check activation phrases with fuzzy match for robustness
+                        # Check activation phrases with fuzzy matching for robustness.
+                        # We compare n-gram windows to handle small insertions/omissions.
                         def fuzzy_contains(haystack: str, needle: str, cutoff: float = 0.82) -> bool:
                             if needle in haystack:
                                 return True

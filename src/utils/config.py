@@ -12,12 +12,15 @@ ACTIVATION_PHRASES = [
 ]
 
 # Whisper model to use. 'base.en' improves accuracy over 'tiny.en' with small latency hit.
+# Tip: for even better accuracy, consider 'small.en' (heavier) if CPU allows.
 WHISPER_MODEL = "base.en"
 
 # How many seconds of audio to record per chunk when listening continuously.
+# Longer windows can capture the full phrase but add latency (here 7s per user choice).
 PHRASE_TIME_LIMIT = 7
 
 # Seconds to sample for ambient noise adjustment before listening loop.
+# Increase in noisy rooms to improve VAD threshold stability.
 AMBIENT_ADJUST_SECONDS = 3.0
 
 # Optional: pause after detection (seconds) to avoid immediate re-trigger
@@ -33,9 +36,11 @@ EMBEDDINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..",
 EMBEDDINGS_PATH = os.path.abspath(EMBEDDINGS_PATH)
 
 # Face recognition matching threshold (lower = stricter). 0.45-0.6 typical.
+# Higher values allow more matches but increase false positives (0.6 chosen).
 FACE_MATCH_THRESHOLD = 0.6
 
 # How many images to capture during enrollment by default
+# More diverse samples (angles/lighting/expressions) improve recognition robustness.
 DEFAULT_ENROLL_COUNT = 30
 
 # Webcam index for face recognition (0 usually)
