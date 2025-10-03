@@ -45,6 +45,9 @@ class StateManager:
 
         with self._lock:
             old = self._state
+            # No-op if state is unchanged (prevents redundant callbacks/restarts)
+            if old == new_state:
+                return
             self._state = new_state
 
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
