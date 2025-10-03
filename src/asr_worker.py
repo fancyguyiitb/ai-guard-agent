@@ -16,6 +16,7 @@ import time
 import threading
 
 from src.utils.config import ACTIVATION_PHRASES, WHISPER_MODEL, PHRASE_TIME_LIMIT, AMBIENT_ADJUST_SECONDS, POST_DETECTION_PAUSE
+from difflib import SequenceMatcher
 
 class ASRWorker:
     """Background speech recognizer that triggers state transitions.
@@ -78,13 +79,32 @@ class ASRWorker:
                         tmp_path = f.name
 
                     try:
-                        # transcribe via whisper
-                        res = self.model.transcribe(tmp_path, language="en")
+                        # transcribe via whisper with CPU-friendly settings
+                        res = self.model.transcribe(
+                            tmp_path,
+                            language="en",
+                            temperature=0.0,
+                            no_speech_threshold=0.6,
+                            logprob_threshold=-0.8,
+                            condition_on_previous_text=False,
+                        )
                         text = res.get("text", "").lower().strip()
                         print(f"[ASR] Transcribed: '{text}'")
 
-                        # check activation phrases
-                        if any(phrase in text for phrase in ACTIVATION_PHRASES):
+                        # check activation phrases with fuzzy match for robustness
+                        def fuzzy_contains(haystack: str, needle: str, cutoff: float = 0.82) -> bool:
+                            if needle in haystack:
+                                return True
+                            # sliding window approximate match
+                            words = haystack.split()
+                            n = len(needle.split())
+                            for i in range(0, max(1, len(words) - n + 1)):
+                                window = " ".join(words[i:i+n])
+                                if SequenceMatcher(None, window, needle).ratio() >= cutoff:
+                                    return True
+                            return False
+
+                        if any(fuzzy_contains(text, phrase) for phrase in ACTIVATION_PHRASES):
                             print("[ASR] Activation phrase detected!")
                             self.state_manager.set_state("GUARD")
                             time.sleep(POST_DETECTION_PAUSE)
