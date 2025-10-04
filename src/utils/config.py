@@ -45,3 +45,23 @@ DEFAULT_ENROLL_COUNT = 30
 
 # Webcam index for face recognition (0 usually)
 WEBCAM_INDEX = 0
+
+# ---- Escalation settings ----
+ESCALATION_MAX_LEVEL = 3
+ESCALATION_WAIT_AFTER_SPEAK = 3.0  # seconds to wait after speaking before checking for trusted user
+ESCALATION_CHECK_FRAMES = 30  # number of frames to check for trusted user after speaking
+ESCALATION_CHECK_INTERVAL = 0.1  # seconds between frame checks
+ESCALATION_UNKNOWN_COOLDOWN = 5.0  # seconds to wait before allowing another unknown face callback
+
+# ---- Logging and snapshots ----
+LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "data", "logs")
+LOGS_DIR = os.path.abspath(LOGS_DIR)
+SNAPSHOT_DIR = os.path.join(LOGS_DIR, "snapshots")
+SNAPSHOT_DIR = os.path.abspath(SNAPSHOT_DIR)
+
+# ---- TTS and alarm settings ----
+ALARM_SOUND_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "data", "alarm.mp3")
+ALARM_SOUND_PATH = os.path.abspath(ALARM_SOUND_PATH)
+
+# ---- OpenAI settings (optional) ----
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")  # Set via environment variable

@@ -3,45 +3,67 @@ import time
 import argparse
 import cv2
 import threading
-import pyttsx3
+import os
 
 from src.state_manager import StateManager, State
 from src.asr_worker import ASRWorker
 from src.face_recog import FaceRecognizer
+from src.escalation import EscalationManager
+from src.tts import TTSWrapper
 
-def speak(text):
-    try:
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
-    except Exception as e:
-        print("[TTS] Error:", e)
+# Global TTS instance
+tts = TTSWrapper()
 
-def main(camera_test_only=False):
+def main(camera_test_only=False, llm_mode="rule"):
     sm = StateManager()
     fr = FaceRecognizer()
     asr = ASRWorker(sm)
+    escalation_manager = EscalationManager(sm, fr, llm_mode)
 
-    # face-recognizer callback
+    # face-recognizer callbacks
     def on_face_recognized(name, distance):
         # called when fr detects a trusted person (first time in session)
         print(f"[Main] on_face_recognized callback -> {name} (dist={distance})")
+        
+        # Stop any ongoing escalation if trusted user appears
+        if escalation_manager.is_escalating:
+            print(f"[Main] Trusted user {name} detected during escalation, stopping escalation")
+            escalation_manager.stop_escalation()
+        
         try:
             # greet using TTS (non-blocking)
-            t = threading.Thread(target=speak, args=(f"Welcome, {name}",), daemon=True)
+            t = threading.Thread(target=tts.speak, args=(f"Welcome, {name}",), daemon=True)
             t.start()
         except Exception as e:
             print("[Main] TTS error:", e)
+    
+    def on_unknown_face(face_crop, location):
+        # called when fr detects an unknown person
+        print(f"[Main] on_unknown_face callback at {location}")
+        
+        # Only start escalation if we're in GUARD state and not already escalating
+        if sm.get_state() == State.GUARD and not escalation_manager.is_escalating:
+            escalation_manager.start_escalation(face_crop, location)
+        else:
+            print("[Main] Ignoring unknown face - not in GUARD state or already escalating")
 
     # state-change callback
     def on_state_change(old, new):
         print(f"[Main] state callback: {old.value} -> {new.value}")
         if new == State.GUARD:
             print("[Main] Entered GUARD: starting face recognition loop.")
-            fr.start_recognition_loop(on_recognized=on_face_recognized, show_preview=True)
+            fr.start_recognition_loop(
+                on_recognized=on_face_recognized, 
+                on_unknown=on_unknown_face,
+                show_preview=True
+            )
         elif old == State.GUARD and new != State.GUARD:
-            print("[Main] Exiting GUARD: stopping face recognition.")
+            print("[Main] Exiting GUARD: stopping face recognition and escalation.")
             fr.stop_recognition()
+            escalation_manager.stop_escalation()
+        elif new == State.ALARM:
+            print("[Main] ALARM state activated - system is in maximum security mode")
+            # Alarm is already handled by escalation manager
 
     sm.register_callback(on_state_change)
 
@@ -71,15 +93,18 @@ def main(camera_test_only=False):
     try:
         while True:
             time.sleep(0.5)
-            # main loop idle; state callbacks manage recognition
+            # main loop idle; state callbacks manage recognition and escalation
     except KeyboardInterrupt:
         print("[Main] KeyboardInterrupt — stopping...")
         asr.stop()
         fr.stop_recognition()
+        escalation_manager.stop_escalation()
         time.sleep(0.5)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--camera-test", action="store_true", help="Run webcam test and exit")
+    parser.add_argument("--llm-mode", choices=["rule", "openai"], default="rule", 
+                       help="LLM mode: 'rule' for templates, 'openai' for API (requires OPENAI_API_KEY)")
     args = parser.parse_args()
-    main(camera_test_only=args.camera_test)
+    main(camera_test_only=args.camera_test, llm_mode=args.llm_mode)

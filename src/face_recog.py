@@ -14,7 +14,7 @@ except Exception as e:
         "See README for install instructions. Error: " + str(e)
     )
 
-from src.utils.config import EMBEDDINGS_PATH, ENROLL_DIR, FACE_MATCH_THRESHOLD, WEBCAM_INDEX
+from src.utils.config import EMBEDDINGS_PATH, ENROLL_DIR, FACE_MATCH_THRESHOLD, WEBCAM_INDEX, ESCALATION_UNKNOWN_COOLDOWN
 
 class FaceRecognizer:
     def __init__(self, embeddings_path=EMBEDDINGS_PATH, enroll_dir=ENROLL_DIR, match_threshold=FACE_MATCH_THRESHOLD, webcam_index=WEBCAM_INDEX):
@@ -33,6 +33,13 @@ class FaceRecognizer:
 
         # callback when a trusted person recognized: fn(name, distance)
         self.on_recognized_callback = None
+        
+        # callback when an unknown person detected: fn(face_crop, location)
+        self.on_unknown_callback = None
+        
+        # cooldown for unknown face callbacks to prevent spam
+        self._last_unknown_time = 0
+        self._unknown_cooldown = ESCALATION_UNKNOWN_COOLDOWN
 
     def _load_embeddings(self):
         if os.path.exists(self.embeddings_path):
@@ -108,15 +115,21 @@ class FaceRecognizer:
         return results
 
     # ---- Webcam-based continuous recognition ----
-    def start_recognition_loop(self, on_recognized=None, show_preview=False, preview_window_name="FaceRecog"):
+    def start_recognition_loop(self, on_recognized=None, on_unknown=None, show_preview=False, preview_window_name="FaceRecog"):
         """
-        Starts thread that reads webcam frames and calls on_recognized(name, distance)
-        for recognized trusted persons (first detection per person will call callback).
+        Starts thread that reads webcam frames and calls callbacks for recognized persons.
+        
+        Args:
+            on_recognized: fn(name, distance) called for trusted persons (first detection per person)
+            on_unknown: fn(face_crop, location) called for unknown persons (with cooldown)
+            show_preview: Whether to show camera preview window
+            preview_window_name: Name of the preview window
         """
         if self._running:
             return
         self._running = True
         self.on_recognized_callback = on_recognized
+        self.on_unknown_callback = on_unknown
         self._thread = threading.Thread(target=self._run_loop, args=(show_preview, preview_window_name), daemon=True)
         self._thread.start()
 
@@ -136,9 +149,13 @@ class FaceRecognizer:
                     continue
 
                 results = self.recognize_frame(frame)
+                current_time = time.time()
+                
                 for r in results:
                     name = r["name"]
                     dist = r["distance"]
+                    location = r["location"]
+                    
                     if name != "unknown":
                         if name not in seen_this_session:
                             seen_this_session.add(name)
@@ -148,6 +165,22 @@ class FaceRecognizer:
                                     self.on_recognized_callback(name, dist)
                                 except Exception as e:
                                     print("[FaceRecog] callback error:", e)
+                    else:
+                        # Handle unknown face with cooldown
+                        if (self.on_unknown_callback and 
+                            current_time - self._last_unknown_time > self._unknown_cooldown):
+                            
+                            # Extract face crop from frame
+                            top, right, bottom, left = location
+                            face_crop = frame[top:bottom, left:right]
+                            
+                            if face_crop.size > 0:  # Ensure we have a valid crop
+                                self._last_unknown_time = current_time
+                                print(f"[FaceRecog] Unknown person detected at {location}")
+                                try:
+                                    self.on_unknown_callback(face_crop, location)
+                                except Exception as e:
+                                    print("[FaceRecog] unknown callback error:", e)
                 if show_preview:
                     # draw boxes
                     for r in results:
