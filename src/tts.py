@@ -64,25 +64,60 @@ class TTSWrapper:
             text (str): Text to speak
             blocking (bool): If True, wait for speech to complete before returning
         """
+        def _speak_worker():
+            try:
+                print(f"[TTS] Attempting to speak: '{text}'")
+                
+                # Use a completely fresh engine instance
+                import pyttsx3
+                engine = pyttsx3.init()
+                
+                # Set properties
+                engine.setProperty('rate', 180)
+                engine.setProperty('volume', 0.9)
+                
+                # Configure voice
+                voices = engine.getProperty('voices')
+                if voices:
+                    # Try to use a female voice if available
+                    for voice in voices:
+                        if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
+                            engine.setProperty('voice', voice.id)
+                            break
+                    else:
+                        # Fallback to first available voice
+                        engine.setProperty('voice', voices[0].id)
+                
+                # Stop any existing speech
+                try:
+                    engine.stop()
+                except:
+                    pass
+                
+                # Speak the text
+                engine.say(text)
+                engine.runAndWait()
+                
+                print(f"[TTS] Successfully spoke: '{text}'")
+                
+            except Exception as e:
+                print(f"[TTS] Error in speak worker: {e}")
+                # Try alternative TTS method
+                try:
+                    import subprocess
+                    # Use Windows built-in TTS as fallback
+                    subprocess.run(['powershell', '-Command', f'Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'], 
+                                 check=False, capture_output=True)
+                    print(f"[TTS] Fallback TTS completed: '{text}'")
+                except Exception as e2:
+                    print(f"[TTS] Fallback TTS also failed: {e2}")
+        
         try:
-            # Always use a new engine instance to avoid conflicts
-            temp_engine = pyttsx3.init()
-            temp_engine.setProperty('rate', 180)
-            temp_engine.setProperty('volume', 0.9)
-            
             if blocking:
-                temp_engine.say(text)
-                temp_engine.runAndWait()
+                _speak_worker()
             else:
                 # Run in separate thread for non-blocking speech
-                def _speak_thread():
-                    try:
-                        temp_engine.say(text)
-                        temp_engine.runAndWait()
-                    except Exception as e:
-                        print(f"[TTS] Error in speak thread: {e}")
-                
-                thread = threading.Thread(target=_speak_thread, daemon=True)
+                thread = threading.Thread(target=_speak_worker, daemon=True)
                 thread.start()
                 
         except Exception as e:

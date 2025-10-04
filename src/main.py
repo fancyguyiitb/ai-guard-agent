@@ -23,29 +23,31 @@ def main(camera_test_only=False, llm_mode="rule"):
     # face-recognizer callbacks
     def on_face_recognized(name, distance):
         # called when fr detects a trusted person (first time in session)
-        print(f"[Main] on_face_recognized callback -> {name} (dist={distance})")
+        print(f"✅ [TRUSTED USER DETECTED] {name} (confidence: {1-distance:.3f})")
         
         # Stop any ongoing escalation if trusted user appears
         if escalation_manager.is_escalating:
-            print(f"[Main] Trusted user {name} detected during escalation, stopping escalation")
+            print(f"🛑 [ESCALATION STOPPED] Trusted user {name} detected during escalation")
             escalation_manager.stop_escalation()
         
         try:
             # greet using TTS (non-blocking)
+            print(f"🔊 [TTS] Speaking: 'Welcome, {name}'")
             t = threading.Thread(target=tts.speak, args=(f"Welcome, {name}",), daemon=True)
             t.start()
         except Exception as e:
-            print("[Main] TTS error:", e)
+            print(f"❌ [TTS ERROR]: {e}")
     
     def on_unknown_face(face_crop, location):
         # called when fr detects an unknown person
-        print(f"[Main] on_unknown_face callback at {location}")
+        print(f"⚠️ [UNKNOWN PERSON DETECTED] at location {location}")
         
         # Only start escalation if we're in GUARD state and not already escalating
         if sm.get_state() == State.GUARD and not escalation_manager.is_escalating:
+            print("🚨 [ESCALATION STARTING] Unknown person detected, beginning escalation sequence")
             escalation_manager.start_escalation(face_crop, location)
         else:
-            print("[Main] Ignoring unknown face - not in GUARD state or already escalating")
+            print("⏸️ [IGNORING] Unknown face - not in GUARD state or already escalating")
 
     # state-change callback
     def on_state_change(old, new):

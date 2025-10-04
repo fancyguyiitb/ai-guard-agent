@@ -56,7 +56,7 @@ class EscalationManager:
             location: (top, right, bottom, left) face location
         """
         if self.is_escalating:
-            print("[EscalationManager] Already escalating, ignoring new unknown")
+            print("⚠️ [ESCALATION] Already escalating, ignoring new unknown")
             return
         
         # Save snapshot
@@ -64,6 +64,9 @@ class EscalationManager:
         
         # Log event
         self._log_event(f"Unknown person detected at {location}, starting escalation")
+        
+        print("🚨 [ESCALATION] Starting 3-level escalation sequence")
+        print("📸 [SNAPSHOT] Unknown face saved to logs")
         
         # Start escalation in separate thread
         self.is_escalating = True
@@ -84,21 +87,35 @@ class EscalationManager:
                    self.state_manager.get_state().value == "GUARD"):
                 
                 self.current_level += 1
-                print(f"[EscalationManager] Escalation Level {self.current_level}")
+                print(f"🔊 [ESCALATION LEVEL {self.current_level}] Starting escalation level {self.current_level}/3")
                 
                 try:
                     # Generate and speak response
                     response = self.llm_agent.generate_response(self.current_level)
                     self._log_event(f"Level {self.current_level}: {response}")
                     
-                    # Speak the response
-                    self.tts.speak(response, blocking=True)
+                    print(f"🗣️ [TTS] Level {self.current_level}: '{response}'")
+                    # Speak the response with explicit error handling
+                    try:
+                        self.tts.speak(response, blocking=True)
+                        print(f"✅ [TTS] Level {self.current_level} speech completed")
+                    except Exception as tts_error:
+                        print(f"❌ [TTS ERROR] Level {self.current_level}: {tts_error}")
+                        # Try a simple fallback
+                        try:
+                            import subprocess
+                            subprocess.run(['powershell', '-Command', f'Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{response}")'], 
+                                         check=False, capture_output=True)
+                            print(f"✅ [FALLBACK TTS] Level {self.current_level} completed")
+                        except Exception as fallback_error:
+                            print(f"❌ [FALLBACK TTS ERROR]: {fallback_error}")
                     
                 except Exception as e:
                     print(f"[EscalationManager] Error in level {self.current_level}: {e}")
                     self._log_event(f"Error in level {self.current_level}: {e}")
                 
-                # Wait after speaking
+                # Wait after speaking to ensure TTS completes
+                print(f"⏳ [ESCALATION] Waiting {ESCALATION_WAIT_AFTER_SPEAK} seconds after Level {self.current_level}...")
                 time.sleep(ESCALATION_WAIT_AFTER_SPEAK)
                 
                 # Check if trusted user appeared during wait
@@ -109,9 +126,10 @@ class EscalationManager:
                 except Exception as e:
                     print(f"[EscalationManager] Error checking trusted user: {e}")
                 
-                # If not max level, wait a bit before next escalation
+                # If not max level, wait 5 seconds before next escalation
                 if self.current_level < ESCALATION_MAX_LEVEL:
-                    time.sleep(2.0)
+                    print(f"⏳ [ESCALATION] Waiting 5 seconds before Level {self.current_level + 1}...")
+                    time.sleep(5.0)
             
             # Handle end of escalation
             if self.current_level >= ESCALATION_MAX_LEVEL and not self._stop_escalation:
@@ -148,7 +166,8 @@ class EscalationManager:
     
     def _trigger_alarm(self):
         """Trigger alarm and transition to ALARM state."""
-        print("[EscalationManager] Maximum escalation reached, triggering alarm")
+        print("🚨 [ALARM TRIGGERED] Maximum escalation reached!")
+        print("🔊 [ALARM] Playing alarm sound and transitioning to ALARM state")
         self._log_event("Maximum escalation reached, triggering alarm")
         
         # Transition to ALARM state
@@ -185,9 +204,9 @@ class EscalationManager:
     def stop_escalation(self):
         """Stop current escalation process."""
         if self.is_escalating:
-            print("[EscalationManager] Stopping escalation")
+            print("🛑 [ESCALATION STOPPED] Trusted user detected, aborting escalation")
             self._stop_escalation = True
-            self._log_event("Escalation stopped by user")
+            self._log_event("Escalation stopped by trusted user")
             
             if self.escalation_thread:
                 self.escalation_thread.join(timeout=2.0)
