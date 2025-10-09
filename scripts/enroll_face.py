@@ -1,10 +1,17 @@
 # scripts/enroll_face.py
 import os
+import sys
 import argparse
 import cv2
 import time
 import face_recognition
 import numpy as np
+
+# Ensure project root is on sys.path so `src` imports work when running this script directly
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from src.face_recog import FaceRecognizer
 from src.utils.config import ENROLL_DIR, DEFAULT_ENROLL_COUNT, WEBCAM_INDEX

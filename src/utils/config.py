@@ -65,3 +65,18 @@ ALARM_SOUND_PATH = os.path.abspath(ALARM_SOUND_PATH)
 
 # ---- OpenAI settings (optional) ----
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")  # Set via environment variable
+
+# ---- Milestone 3: Interaction settings ----
+# Secret passcode required for access (set via env). Empty means no passcode configured.
+ROOM_SECRET_PASSCODE = os.getenv("ROOM_SECRET_PASSCODE", "").strip()
+
+# Per-level listen durations (seconds); can be overridden via env
+def _get_float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except Exception:
+        return default
+
+LEVEL1_LISTEN_SECONDS = _get_float_env("LEVEL1_LISTEN_SECONDS", 6.0)
+LEVEL2_LISTEN_SECONDS = _get_float_env("LEVEL2_LISTEN_SECONDS", 6.0)
+LEVEL3_LISTEN_SECONDS = _get_float_env("LEVEL3_LISTEN_SECONDS", 0.0)

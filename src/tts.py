@@ -3,6 +3,7 @@ import os
 import threading
 import time
 import pyttsx3
+from src.utils.audio_gate import AudioGate
 from src.utils.config import ALARM_SOUND_PATH
 
 class TTSWrapper:
@@ -94,9 +95,11 @@ class TTSWrapper:
                 except:
                     pass
                 
-                # Speak the text
-                engine.say(text)
-                engine.runAndWait()
+                # Speak the text under audio gate mute
+                gate = AudioGate()
+                with gate.tts_speaking():
+                    engine.say(text)
+                    engine.runAndWait()
                 
                 print(f"[TTS] Successfully spoke: '{text}'")
                 
@@ -104,10 +107,12 @@ class TTSWrapper:
                 print(f"[TTS] Error in speak worker: {e}")
                 # Try alternative TTS method
                 try:
+                    gate = AudioGate()
                     import subprocess
                     # Use Windows built-in TTS as fallback
-                    subprocess.run(['powershell', '-Command', f'Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'], 
-                                 check=False, capture_output=True)
+                    with gate.tts_speaking():
+                        subprocess.run(['powershell', '-Command', f'Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'], 
+                                     check=False, capture_output=True)
                     print(f"[TTS] Fallback TTS completed: '{text}'")
                 except Exception as e2:
                     print(f"[TTS] Fallback TTS also failed: {e2}")
@@ -164,3 +169,23 @@ class TTSWrapper:
                 self.engine.stop()
             except Exception as e:
                 print(f"[TTS] Error stopping engine: {e}")
+
+    # ---- Utility beeps ----
+    def beep(self, frequency: int = 1000, duration_ms: int = 200):
+        """Play a short beep to indicate start of listening."""
+        try:
+            from src.utils.audio_gate import AudioGate
+            gate = AudioGate()
+            with gate.tts_speaking():
+                try:
+                    import platform
+                    if platform.system() == "Windows":
+                        import winsound
+                        winsound.Beep(frequency, duration_ms)
+                    else:
+                        # Cross-platform fallback: quick spoken beep via pyttsx3
+                        self.speak("beep", blocking=True)
+                except Exception:
+                    self.speak("beep", blocking=True)
+        except Exception as e:
+            print(f"[TTS] Beep failed: {e}")

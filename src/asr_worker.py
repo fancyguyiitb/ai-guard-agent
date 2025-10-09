@@ -17,6 +17,8 @@ import threading
 
 from src.utils.config import ACTIVATION_PHRASES, WHISPER_MODEL, PHRASE_TIME_LIMIT, AMBIENT_ADJUST_SECONDS, POST_DETECTION_PAUSE
 from difflib import SequenceMatcher
+from src.utils.audio_gate import AudioGate
+from src.state_manager import State
 
 class ASRWorker:
     """Background speech recognizer that triggers state transitions.
@@ -64,10 +66,24 @@ class ASRWorker:
                 # calibrate energy threshold for ambient noise
                 self.recognizer.adjust_for_ambient_noise(source, duration=self.ambient_adjust)
 
+                gate = AudioGate()
                 while self._running:
+                    # Pause ASR during INTERACT or ALARM to free mic for escalation/alarm
+                    try:
+                        cur_state = self.state_manager.get_state()
+                        if isinstance(cur_state, State) and cur_state in (State.INTERACT, State.ALARM):
+                            time.sleep(0.05)
+                            continue
+                    except Exception:
+                        pass
                     print("[ASR] Listening (phrase_time_limit={}s) ...".format(self.phrase_time_limit))
                     try:
-                        audio = self.recognizer.listen(source, phrase_time_limit=self.phrase_time_limit)
+                        # Skip listening while muted (TTS speaking)
+                        if gate.is_muted():
+                            time.sleep(0.05)
+                            continue
+                        with gate.mic_session():
+                            audio = self.recognizer.listen(source, phrase_time_limit=self.phrase_time_limit)
                     except Exception as e:
                         print("[ASR] Microphone listening error:", e)
                         time.sleep(0.2)

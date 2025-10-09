@@ -29,6 +29,13 @@ def main(camera_test_only=False, llm_mode="rule"):
         if escalation_manager.is_escalating:
             print(f"🛑 [ESCALATION STOPPED] Trusted user {name} detected during escalation")
             escalation_manager.stop_escalation()
+            # Audible notification that we're standing down
+            try:
+                print("🔊 [TTS] Speaking: 'Trusted user detected. Standing down.'")
+                t = threading.Thread(target=tts.speak, args=("Trusted user detected. Standing down.",), daemon=True)
+                t.start()
+            except Exception as e:
+                print(f"❌ [TTS ERROR]: {e}")
         
         try:
             # greet using TTS (non-blocking)
@@ -59,10 +66,13 @@ def main(camera_test_only=False, llm_mode="rule"):
                 on_unknown=on_unknown_face,
                 show_preview=True
             )
-        elif old == State.GUARD and new != State.GUARD:
-            print("[Main] Exiting GUARD: stopping face recognition and escalation.")
+        elif new == State.INTERACT:
+            # Pause face recognition during interaction to avoid contention and false unknowns
+            print("[Main] Entered INTERACT: pausing face recognition during dialogue.")
             fr.stop_recognition()
-            escalation_manager.stop_escalation()
+        elif old == State.GUARD and new in (State.ALARM, State.OFF):
+            print("[Main] Leaving GUARD to critical state: stopping face recognition.")
+            fr.stop_recognition()
         elif new == State.ALARM:
             print("[Main] ALARM state activated - system is in maximum security mode")
             # Alarm is already handled by escalation manager

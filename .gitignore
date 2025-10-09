@@ -17,3 +17,5 @@ __pycache__/
 *.heic
 *.heif
 *.heif
+*.env
+*.env.local
