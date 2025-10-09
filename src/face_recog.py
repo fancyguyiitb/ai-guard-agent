@@ -15,6 +15,7 @@ except Exception as e:
     )
 
 from src.utils.config import EMBEDDINGS_PATH, ENROLL_DIR, FACE_MATCH_THRESHOLD, WEBCAM_INDEX
+from src.utils.logger import get_face_logger
 
 class FaceRecognizer:
     def __init__(self, embeddings_path=EMBEDDINGS_PATH, enroll_dir=ENROLL_DIR, match_threshold=FACE_MATCH_THRESHOLD, webcam_index=WEBCAM_INDEX):
@@ -22,6 +23,7 @@ class FaceRecognizer:
         self.enroll_dir = enroll_dir
         self.match_threshold = match_threshold
         self.webcam_index = webcam_index
+        self.logger = get_face_logger()
 
         # dict: name -> list of 128-d numpy arrays
         self.known_embeddings = {}
@@ -39,9 +41,9 @@ class FaceRecognizer:
             try:
                 with open(self.embeddings_path, "rb") as f:
                     self.known_embeddings = pickle.load(f)
-                print(f"[FaceRecog] Loaded embeddings for {len(self.known_embeddings)} people.")
+                self.logger.info("Loaded embeddings for %d people.", len(self.known_embeddings))
             except Exception as e:
-                print("[FaceRecog] Failed to load embeddings:", e)
+                self.logger.error("Failed to load embeddings: %s", e)
                 self.known_embeddings = {}
         else:
             self.known_embeddings = {}
@@ -50,7 +52,7 @@ class FaceRecognizer:
         os.makedirs(os.path.dirname(self.embeddings_path), exist_ok=True)
         with open(self.embeddings_path, "wb") as f:
             pickle.dump(self.known_embeddings, f)
-        print(f"[FaceRecog] Saved embeddings ({len(self.known_embeddings)} people) to {self.embeddings_path}")
+        self.logger.info("Saved embeddings (%d people) to %s", len(self.known_embeddings), self.embeddings_path)
 
     def add_embeddings_for(self, name, encodings):
         """
@@ -123,7 +125,7 @@ class FaceRecognizer:
     def _run_loop(self, show_preview, preview_window_name):
         cap = cv2.VideoCapture(self.webcam_index)
         if not cap.isOpened():
-            print("[FaceRecog] Cannot open webcam for recognition.")
+            self.logger.error("Cannot open webcam for recognition.")
             self._running = False
             return
 
@@ -139,15 +141,30 @@ class FaceRecognizer:
                 for r in results:
                     name = r["name"]
                     dist = r["distance"]
+                    top, right, bottom, left = r["location"]
+
+                    # Uniform logging for every detected face (console colored by level)
+                    dist_str = f"{dist:.3f}" if isinstance(dist, (int, float)) else "n/a"
+                    if name == "unknown":
+                        self.logger.warning(
+                            "Detected face: UNKNOWN (dist=%s, box=(%d,%d,%d,%d))",
+                            dist_str, top, right, bottom, left
+                        )
+                    else:
+                        self.logger.info(
+                            "Detected face: %s (dist=%s, box=(%d,%d,%d,%d))",
+                            name, dist_str, top, right, bottom, left
+                        )
+
                     if name != "unknown":
                         if name not in seen_this_session:
                             seen_this_session.add(name)
-                            print(f"[FaceRecog] Recognized {name} (dist={dist:.3f})")
+                            self.logger.info("Recognized %s (dist=%.3f)", name, dist)
                             if self.on_recognized_callback:
                                 try:
                                     self.on_recognized_callback(name, dist)
                                 except Exception as e:
-                                    print("[FaceRecog] callback error:", e)
+                                    self.logger.error("on_recognized_callback error: %s", e, exc_info=True)
                 if show_preview:
                     # draw boxes
                     for r in results:
@@ -166,7 +183,7 @@ class FaceRecognizer:
             if show_preview:
                 cv2.destroyWindow(preview_window_name)
             self._running = False
-            print("[FaceRecog] Recognition loop stopped.")
+            self.logger.info("Recognition loop stopped.")
 
     def stop_recognition(self):
         self._running = False

@@ -45,3 +45,9 @@ DEFAULT_ENROLL_COUNT = 30
 
 # Webcam index for face recognition (0 usually)
 WEBCAM_INDEX = 0
+
+# ---- Logging settings ----
+# Directory and file for consolidated logs (console still prints; file stores all events)
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".."))
+LOG_DIR = os.path.join(BASE_DIR, "data", "logs")
+LOG_FILE = os.path.join(LOG_DIR, "events.log")
