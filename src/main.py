@@ -8,12 +8,12 @@ import pyttsx3
 from src.state_manager import StateManager, State
 from src.asr_worker import ASRWorker
 from src.face_recog import FaceRecognizer
+from src.escalation import EscalationManager
+from src.tts import TTSWrapper
 
-def speak(text):
+def speak_with_wrapper(tts, text):
     try:
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
+        tts.speak(text, async_mode=True)
     except Exception as e:
         print("[TTS] Error:", e)
 
@@ -21,27 +21,40 @@ def main(camera_test_only=False):
     sm = StateManager()
     fr = FaceRecognizer()
     asr = ASRWorker(sm)
+    tts = TTSWrapper()
+    escalation = EscalationManager(sm, tts)
 
     # face-recognizer callback
     def on_face_recognized(name, distance):
         # called when fr detects a trusted person (first time in session)
         print(f"[Main] on_face_recognized callback -> {name} (dist={distance})")
         try:
-            # greet using TTS (non-blocking)
-            t = threading.Thread(target=speak, args=(f"Welcome, {name}",), daemon=True)
+            # greet using shared TTS engine (non-blocking)
+            greeting = f"Welcome, {name}. "
+            if escalation.is_running():
+                greeting += "Escalation has been terminated."
+            t = threading.Thread(target=speak_with_wrapper, args=(tts, greeting), daemon=True)
             t.start()
         except Exception as e:
             print("[Main] TTS error:", e)
+        # If alarm was active, reset back to GUARD
+        try:
+            escalation.reset()
+        except Exception:
+            pass
+
+    def on_unknown_face(frame_bgr, face_result):
+        # Only start escalation when in GUARD
+        if sm.get_state() == State.GUARD:
+            escalation.start(frame_bgr)
 
     # state-change callback
     def on_state_change(old, new):
         print(f"[Main] state callback: {old.value} -> {new.value}")
         if new == State.GUARD:
             print("[Main] Entered GUARD: starting face recognition loop.")
-            fr.start_recognition_loop(on_recognized=on_face_recognized, show_preview=True)
-        elif old == State.GUARD and new != State.GUARD:
-            print("[Main] Exiting GUARD: stopping face recognition.")
-            fr.stop_recognition()
+            fr.start_recognition_loop(on_recognized=on_face_recognized, on_unknown=on_unknown_face, show_preview=True)
+        # Keep recognition running even during ALARM per requirement
 
     sm.register_callback(on_state_change)
 

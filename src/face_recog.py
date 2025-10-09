@@ -110,7 +110,7 @@ class FaceRecognizer:
         return results
 
     # ---- Webcam-based continuous recognition ----
-    def start_recognition_loop(self, on_recognized=None, show_preview=False, preview_window_name="FaceRecog"):
+    def start_recognition_loop(self, on_recognized=None, on_unknown=None, show_preview=False, preview_window_name="FaceRecog"):
         """
         Starts thread that reads webcam frames and calls on_recognized(name, distance)
         for recognized trusted persons (first detection per person will call callback).
@@ -119,6 +119,7 @@ class FaceRecognizer:
             return
         self._running = True
         self.on_recognized_callback = on_recognized
+        self.on_unknown_callback = on_unknown
         self._thread = threading.Thread(target=self._run_loop, args=(show_preview, preview_window_name), daemon=True)
         self._thread.start()
 
@@ -165,6 +166,13 @@ class FaceRecognizer:
                                     self.on_recognized_callback(name, dist)
                                 except Exception as e:
                                     self.logger.error("on_recognized_callback error: %s", e, exc_info=True)
+                    else:
+                        if self.on_unknown_callback:
+                            try:
+                                # Pass a copy of the current frame for snapshot/escalation
+                                self.on_unknown_callback(frame.copy(), r)
+                            except Exception as e:
+                                self.logger.error("on_unknown_callback error: %s", e, exc_info=True)
                 if show_preview:
                     # draw boxes
                     for r in results:
