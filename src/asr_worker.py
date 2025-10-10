@@ -40,6 +40,7 @@ class ASRWorker:
         self.model = None  # lazy load to avoid heavy cost at import time
         self._running = False
         self.ambient_adjust = ambient_adjust
+        self._listening_enabled = True
 
     def _ensure_model(self):
         """Load Whisper model on first use to keep import time fast."""
@@ -65,6 +66,11 @@ class ASRWorker:
                 self.recognizer.adjust_for_ambient_noise(source, duration=self.ambient_adjust)
 
                 while self._running:
+                    # Only listen if listening is enabled and we're in OFF state
+                    if not self._listening_enabled or self.state_manager.get_state().value != "OFF":
+                        time.sleep(1.0)  # Check every second
+                        continue
+                        
                     print("[ASR] Listening (phrase_time_limit={}s) ...".format(self.phrase_time_limit))
                     try:
                         audio = self.recognizer.listen(source, phrase_time_limit=self.phrase_time_limit)
@@ -111,6 +117,7 @@ class ASRWorker:
 
                         if any(fuzzy_contains(text, phrase) for phrase in ACTIVATION_PHRASES):
                             print("[ASR] Activation phrase detected!")
+                            self._listening_enabled = False  # Stop listening until reset to OFF
                             self.state_manager.set_state("GUARD")
                             time.sleep(POST_DETECTION_PAUSE)
                     except Exception as e:
@@ -128,6 +135,16 @@ class ASRWorker:
     def stop(self):
         """Signal the background loop to stop at the next opportunity."""
         self._running = False
+
+    def enable_listening(self):
+        """Re-enable listening (call when returning to OFF state)."""
+        self._listening_enabled = True
+        print("[ASR] Listening re-enabled")
+
+    def disable_listening(self):
+        """Disable listening (call when leaving OFF state)."""
+        self._listening_enabled = False
+        print("[ASR] Listening disabled")
 
     def start_in_background(self):
         """Start the listening loop in a daemon thread and return it."""

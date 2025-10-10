@@ -52,11 +52,3 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__
 LOG_DIR = os.path.join(BASE_DIR, "data", "logs")
 LOG_FILE = os.path.join(LOG_DIR, "events.log")
 
-# Public aliases used elsewhere
-LOGS_DIR = LOG_DIR
-SNAPSHOT_DIR = os.path.join(LOGS_DIR, "snapshots")
-
-# ---- Escalation settings ----
-ESCALATION_MAX_LEVEL = 3
-ESCALATION_WAIT_BETWEEN_LEVELS = 4
-ESCALATION_ALARM_DURATION_SECONDS = 10
