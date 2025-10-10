@@ -32,9 +32,12 @@ class FaceRecognizer:
         # recognition thread control
         self._running = False
         self._thread = None
+        self._recognition_enabled = True
 
         # callback when a trusted person recognized: fn(name, distance)
         self.on_recognized_callback = None
+        # callback when unknown face detected: fn()
+        self.on_unknown_callback = None
 
     def _load_embeddings(self):
         if os.path.exists(self.embeddings_path):
@@ -110,7 +113,7 @@ class FaceRecognizer:
         return results
 
     # ---- Webcam-based continuous recognition ----
-    def start_recognition_loop(self, on_recognized=None, show_preview=False, preview_window_name="FaceRecog"):
+    def start_recognition_loop(self, on_recognized=None, on_unknown=None, show_preview=False, preview_window_name="FaceRecog"):
         """
         Starts thread that reads webcam frames and calls on_recognized(name, distance)
         for recognized trusted persons (first detection per person will call callback).
@@ -119,6 +122,7 @@ class FaceRecognizer:
             return
         self._running = True
         self.on_recognized_callback = on_recognized
+        self.on_unknown_callback = on_unknown
         self._thread = threading.Thread(target=self._run_loop, args=(show_preview, preview_window_name), daemon=True)
         self._thread.start()
 
@@ -130,6 +134,7 @@ class FaceRecognizer:
             return
 
         seen_this_session = set()  # to avoid repeated callbacks for same person
+        last_check_time = 0
         try:
             while self._running:
                 ret, frame = cap.read()
@@ -137,34 +142,50 @@ class FaceRecognizer:
                     time.sleep(0.05)
                     continue
 
-                results = self.recognize_frame(frame)
-                for r in results:
-                    name = r["name"]
-                    dist = r["distance"]
-                    top, right, bottom, left = r["location"]
+                current_time = time.time()
+                
+                # Only process faces if recognition is enabled and 1 second has passed
+                if self._recognition_enabled and (current_time - last_check_time) >= 1.0:
+                    results = self.recognize_frame(frame)
+                    for r in results:
+                        name = r["name"]
+                        dist = r["distance"]
+                        top, right, bottom, left = r["location"]
 
-                    # Uniform logging for every detected face (console colored by level)
-                    dist_str = f"{dist:.3f}" if isinstance(dist, (int, float)) else "n/a"
-                    if name == "unknown":
-                        self.logger.warning(
-                            "Detected face: UNKNOWN (dist=%s, box=(%d,%d,%d,%d))",
-                            dist_str, top, right, bottom, left
-                        )
-                    else:
-                        self.logger.info(
-                            "Detected face: %s (dist=%s, box=(%d,%d,%d,%d))",
-                            name, dist_str, top, right, bottom, left
-                        )
+                        # Uniform logging for every detected face (console colored by level)
+                        dist_str = f"{dist:.3f}" if isinstance(dist, (int, float)) else "n/a"
+                        if name == "unknown":
+                            self.logger.warning(
+                                "Detected face: UNKNOWN (dist=%s, box=(%d,%d,%d,%d))",
+                                dist_str, top, right, bottom, left
+                            )
+                            # Call unknown callback
+                            if self.on_unknown_callback:
+                                try:
+                                    self.on_unknown_callback()
+                                except Exception as e:
+                                    self.logger.error("on_unknown_callback error: %s", e, exc_info=True)
+                        else:
+                            self.logger.info(
+                                "Detected face: %s (dist=%s, box=(%d,%d,%d,%d))",
+                                name, dist_str, top, right, bottom, left
+                            )
 
-                    if name != "unknown":
-                        if name not in seen_this_session:
-                            seen_this_session.add(name)
-                            self.logger.info("Recognized %s (dist=%.3f)", name, dist)
+                        if name != "unknown":
+                            if name not in seen_this_session:
+                                seen_this_session.add(name)
+                                self.logger.info("Recognized %s (dist=%.3f)", name, dist)
+                            # Always call the callback for trusted faces (not just first time)
                             if self.on_recognized_callback:
                                 try:
                                     self.on_recognized_callback(name, dist)
                                 except Exception as e:
                                     self.logger.error("on_recognized_callback error: %s", e, exc_info=True)
+                    last_check_time = current_time  # Update last check time
+                else:
+                    # Recognition disabled - just show camera feed without processing
+                    results = []
+                    
                 if show_preview:
                     # draw boxes
                     for r in results:
@@ -184,6 +205,16 @@ class FaceRecognizer:
                 cv2.destroyWindow(preview_window_name)
             self._running = False
             self.logger.info("Recognition loop stopped.")
+
+    def enable_recognition(self):
+        """Enable face recognition processing"""
+        self._recognition_enabled = True
+        self.logger.info("Face recognition enabled")
+
+    def disable_recognition(self):
+        """Disable face recognition processing (camera still runs)"""
+        self._recognition_enabled = False
+        self.logger.info("Face recognition disabled")
 
     def stop_recognition(self):
         self._running = False
