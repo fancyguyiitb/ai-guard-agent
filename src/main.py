@@ -18,37 +18,45 @@ def main(camera_test_only=False, direct_guard=False):
     # Escalation tracking
     unknown_detections = deque()  # Store timestamps of unknown face detections
     
-    # Use nonlocal to allow modification in nested functions
-    escalation_active = False
-    escalation_thread = None
+    # Simple escalation state
+    escalation_stage = 0  # 0 = no escalation, 1-3 = escalation stages
+    escalation_start_time = 0
     last_greeting_time = 0  # Track last greeting to prevent spam
+    restart_needed = False  # Flag to request system restart
+    escalation_message_spoken = False  # Prevent duplicate TTS messages
 
     def on_face_recognized(name, distance):
         # called when fr detects a trusted person (first time in session)
         print(f"[Main] Trusted person detected: {name} (dist={distance:.3f})")
         
-        # If escalation is active, terminate it
-        nonlocal escalation_active, last_greeting_time
+        nonlocal escalation_stage, last_greeting_time, restart_needed
         current_time = time.time()
         
-        if escalation_active:
+        if escalation_stage > 0:
             print("[Main] ESCALATION TERMINATED - Trusted person detected")
-            escalation_active = False
-            fr.enable_recognition()  # Re-enable face recognition
-            # Speak termination message
-            speak(f"Hello {name}! Escalation has been terminated. Welcome back.")
-            # Don't change state - we're already in GUARD, just terminate escalation
+            escalation_stage = 0  # Reset escalation
+            # Set flag to request restart first
+            restart_needed = True
+            print("[Main] Restart flag set - waiting for main loop to handle restart")
+            # Speak termination message asynchronously
+            speak(f"Hello {name}! Escalation has been terminated. Welcome back.", async_mode=True)
             last_greeting_time = current_time
-        else:
-            # Initial greeting when no escalation is active (with cooldown)
+        elif sm.get_state() == State.OFF:
+            # Only greet when in OFF state (initial greeting)
             if current_time - last_greeting_time > 10.0:  # 10 second cooldown
                 speak(f"Hello {name}! Welcome. The room is now under guard.")
                 last_greeting_time = current_time
+        # No greeting for normal GUARD mode detections - just log them
 
     def on_unknown_face_detected():
         """Called when unknown face is detected - track for escalation trigger"""
-        nonlocal escalation_active
+        nonlocal escalation_stage, escalation_start_time
         current_time = time.time()
+        
+        # Only process if not already in escalation
+        if escalation_stage > 0:
+            return
+            
         unknown_detections.append(current_time)
         
         # Remove detections older than 4 seconds
@@ -58,73 +66,33 @@ def main(camera_test_only=False, direct_guard=False):
         print(f"[Main] Unknown face detected ({len(unknown_detections)} detections in last 4s)")
         
         # If we have 2+ detections in 4 seconds, start escalation
-        if len(unknown_detections) >= 2 and not escalation_active:
+        if len(unknown_detections) >= 2:
             print("[Main] ESCALATION TRIGGERED - Unknown person confirmed")
-            start_escalation()
+            escalation_stage = 1
+            escalation_start_time = current_time
+            escalation_message_spoken = False
+            fr.disable_recognition()
 
-    def start_escalation():
-        """Start the 3-stage escalation process"""
-        nonlocal escalation_active, escalation_thread
-        escalation_active = True
-        fr.disable_recognition()  # Disable face recognition during escalation
-        escalation_thread = threading.Thread(target=run_escalation, daemon=True)
-        escalation_thread.start()
-
-    def run_escalation():
-        """Run the 3-stage escalation with 7-second delays"""
-        nonlocal escalation_active
-        escalation_messages = [
-            "Stage 1: Excuse me, I don't recognize you. Please identify yourself.",
-            "Stage 2: You are not authorized to be here. Please leave immediately.", 
-            "Stage 3: ALERT. Intruder detected. Security and the room owner have been notified."
-        ]
-        
-        for stage, message in enumerate(escalation_messages, 1):
-            if not escalation_active:
-                return  # Escalation was terminated
-            
-            print(f"[Main] ESCALATION STAGE {stage}: {message}")
-            # Speak the escalation message
-            speak(message, async_mode=False)  # Synchronous to ensure message is spoken
-            
-            # Re-enable face recognition during 7-second wait (except after final stage)
-            if stage < 3:
-                fr.enable_recognition()
-                print("[Main] Face recognition re-enabled during escalation wait")
-                
-                # Wait 7 seconds, checking for termination
-                for _ in range(7):  # 7 seconds * 1 check per second
-                    if not escalation_active:
-                        print("[Main] Escalation terminated during wait - returning to GUARD")
-                        # Return to GUARD state when escalation is terminated by trusted face
-                        # Don't change state here - let the main thread handle it
-                        return
-                    time.sleep(1.0)
-                
-                fr.disable_recognition()  # Disable again for next stage
-                print("[Main] Face recognition disabled for next escalation stage")
-        
-        # Escalation completed - go to OFF state
-        print("[Main] ESCALATION COMPLETED - Returning to OFF state")
-        escalation_active = False
-        sm.set_state(State.OFF)
 
     # state-change callback
     def on_state_change(old, new):
         print(f"[Main] state callback: {old.value} -> {new.value}")
         if new == State.GUARD:
-            # Only start face recognition if we're coming from OFF state (initial start)
-            if old == State.OFF:
-                print("[Main] Entered GUARD: starting face recognition loop.")
-                fr.start_recognition_loop(on_recognized=on_face_recognized, on_unknown=on_unknown_face_detected, show_preview=True)
-            else:
-                print("[Main] Already in GUARD state - face recognition already running.")
+            # Always start face recognition when entering GUARD state
+            print("[Main] Entered GUARD: starting face recognition loop.")
+            fr.start_recognition_loop(on_recognized=on_face_recognized, on_unknown=on_unknown_face_detected, show_preview=True)
         elif new == State.OFF:
             # Stop face recognition when returning to OFF state
             print("[Main] Entered OFF: stopping face recognition loop.")
             fr.stop_recognition()
-            # Re-enable ASR listening when returning to OFF state
-            asr.enable_listening()
+            # Re-enable ASR listening when returning to OFF state (unless direct-guard mode)
+            if not direct_guard:
+                asr.enable_listening()
+            else:
+                # In direct-guard mode, automatically return to GUARD state
+                print("[Main] Direct-guard mode: automatically returning to GUARD state")
+                time.sleep(1.0)  # Small delay before restart
+                sm.set_state(State.GUARD)
         else:
             # Disable ASR listening for all other states (GUARD, INTERACT, ALARM)
             asr.disable_listening()
@@ -161,8 +129,68 @@ def main(camera_test_only=False, direct_guard=False):
 
     try:
         while True:
-            time.sleep(0.5)
+            time.sleep(0.5)  # Back to reasonable main loop speed
             # main loop idle; state callbacks manage recognition
+            
+            # Check for restart request first
+            if restart_needed:
+                print("[Main] Restart requested - restarting system")
+                restart_needed = False
+                escalation_stage = 0
+                print("[Main] Setting state to OFF")
+                sm.set_state(State.OFF)
+                print("[Main] State change initiated, continuing main loop")
+                continue
+            
+            # Handle escalation logic with simple timer-based approach
+            if escalation_stage > 0:
+                current_time = time.time()
+                time_since_escalation = current_time - escalation_start_time
+                
+                # Escalation messages and timing
+                escalation_messages = [
+                    "Stage 1: Excuse me, I don't recognize you. Please identify yourself.",
+                    "Stage 2: You are not authorized to be here. Please leave immediately.", 
+                    "Stage 3: ALERT. Intruder detected. Security and the room owner have been notified."
+                ]
+                
+                # Determine current stage based on time
+                if escalation_stage == 1:
+                    if time_since_escalation < 1.0 and not escalation_message_spoken:  # First second - speak stage 1
+                        print(f"[Main] ESCALATION STAGE {escalation_stage}: {escalation_messages[0]}")
+                        speak(escalation_messages[0], async_mode=False)
+                        escalation_message_spoken = True
+                    elif time_since_escalation >= 8.0:  # After 8 seconds - move to stage 2
+                        escalation_stage = 2
+                        escalation_start_time = current_time
+                        escalation_message_spoken = False
+                        
+                elif escalation_stage == 2:
+                    if time_since_escalation < 1.0 and not escalation_message_spoken:  # First second - speak stage 2
+                        print(f"[Main] ESCALATION STAGE {escalation_stage}: {escalation_messages[1]}")
+                        speak(escalation_messages[1], async_mode=False)
+                        escalation_message_spoken = True
+                    elif time_since_escalation >= 8.0:  # After 8 seconds - move to stage 3
+                        escalation_stage = 3
+                        escalation_start_time = current_time
+                        escalation_message_spoken = False
+                        
+                elif escalation_stage == 3:
+                    if time_since_escalation < 1.0 and not escalation_message_spoken:  # First second - speak stage 3
+                        print(f"[Main] ESCALATION STAGE {escalation_stage}: {escalation_messages[2]}")
+                        speak(escalation_messages[2], async_mode=False)
+                        escalation_message_spoken = True
+                    elif time_since_escalation >= 8.0:  # After 8 seconds - complete escalation
+                        print("[Main] ESCALATION COMPLETED - Restarting system")
+                        escalation_stage = 0
+                        escalation_message_spoken = False
+                        sm.set_state(State.OFF)
+                        
+                # Enable face recognition during wait periods (between stages)
+                if escalation_stage > 0 and 2.0 <= time_since_escalation <= 7.0:
+                    fr.enable_recognition()
+                else:
+                    fr.disable_recognition()
     except KeyboardInterrupt:
         print("[Main] KeyboardInterrupt — stopping...")
         asr.stop()
