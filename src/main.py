@@ -85,6 +85,9 @@ def main(camera_test_only=False, direct_guard=False):
             # Stop face recognition when returning to OFF state
             print("[Main] Entered OFF: stopping face recognition loop.")
             fr.stop_recognition()
+            # Clear any escalation state
+            escalation_stage = 0
+            escalation_message_spoken = False
             # Re-enable ASR listening when returning to OFF state (unless direct-guard mode)
             if not direct_guard:
                 asr.enable_listening()
@@ -137,6 +140,19 @@ def main(camera_test_only=False, direct_guard=False):
                 print("[Main] Restart requested - restarting system")
                 restart_needed = False
                 escalation_stage = 0
+                escalation_message_spoken = False
+                # Reset TTS engine to prevent "run loop already started" errors
+                try:
+                    from src.tts import tts_manager
+                    if tts_manager.engine:
+                        if hasattr(tts_manager.engine, '_inLoop') and tts_manager.engine._inLoop:
+                            tts_manager.engine.stop()
+                        # Force reinitialize TTS engine
+                        tts_manager.engine = None
+                        tts_manager._initialized = False
+                        print("[Main] TTS engine reset for restart")
+                except Exception as e:
+                    print(f"[Main] TTS reset error: {e}")
                 print("[Main] Setting state to OFF")
                 sm.set_state(State.OFF)
                 print("[Main] State change initiated, continuing main loop")
@@ -184,13 +200,26 @@ def main(camera_test_only=False, direct_guard=False):
                         print("[Main] ESCALATION COMPLETED - Restarting system")
                         escalation_stage = 0
                         escalation_message_spoken = False
+                        # Reset TTS engine to prevent "run loop already started" errors
+                        try:
+                            from src.tts import tts_manager
+                            if tts_manager.engine:
+                                if hasattr(tts_manager.engine, '_inLoop') and tts_manager.engine._inLoop:
+                                    tts_manager.engine.stop()
+                                # Force reinitialize TTS engine
+                                tts_manager.engine = None
+                                tts_manager._initialized = False
+                                print("[Main] TTS engine reset for escalation completion")
+                        except Exception as e:
+                            print(f"[Main] TTS reset error: {e}")
                         sm.set_state(State.OFF)
                         
                 # Enable face recognition during wait periods (between stages)
                 if escalation_stage > 0 and 2.0 <= time_since_escalation <= 7.0:
                     fr.enable_recognition()
-                else:
+                elif escalation_stage > 0:
                     fr.disable_recognition()
+                # If escalation_stage == 0, don't touch face recognition (let state callback handle it)
     except KeyboardInterrupt:
         print("[Main] KeyboardInterrupt — stopping...")
         asr.stop()
