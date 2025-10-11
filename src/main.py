@@ -9,6 +9,8 @@ from src.state_manager import StateManager, State
 from src.asr_worker import ASRWorker
 from src.face_recog import FaceRecognizer
 from src.tts import speak
+from src.email_notifier import send_escalation_alert
+from src.snapshot_capture import capture_intruder_snapshot
 
 def main(camera_test_only=False, direct_guard=False):
     sm = StateManager()
@@ -143,14 +145,19 @@ def main(camera_test_only=False, direct_guard=False):
                 escalation_message_spoken = False
                 # Reset TTS engine to prevent "run loop already started" errors
                 try:
-                    from src.tts import tts_manager
-                    if tts_manager.engine:
-                        if hasattr(tts_manager.engine, '_inLoop') and tts_manager.engine._inLoop:
-                            tts_manager.engine.stop()
-                        # Force reinitialize TTS engine
-                        tts_manager.engine = None
-                        tts_manager._initialized = False
-                        print("[Main] TTS engine reset for restart")
+                    # Import TTS manager from the correct module
+                    import src.tts as tts_module
+                    if hasattr(tts_module, 'tts_manager'):
+                        tts_manager = tts_module.tts_manager
+                        if tts_manager.engine:
+                            if hasattr(tts_manager.engine, '_inLoop') and tts_manager.engine._inLoop:
+                                tts_manager.engine.stop()
+                            # Force reinitialize TTS engine
+                            tts_manager.engine = None
+                            tts_manager._initialized = False
+                            print("[Main] TTS engine reset for restart")
+                    else:
+                        print("[Main] TTS manager not found in module")
                 except Exception as e:
                     print(f"[Main] TTS reset error: {e}")
                 print("[Main] Setting state to OFF")
@@ -196,20 +203,50 @@ def main(camera_test_only=False, direct_guard=False):
                         print(f"[Main] ESCALATION STAGE {escalation_stage}: {escalation_messages[2]}")
                         speak(escalation_messages[2], async_mode=False)
                         escalation_message_spoken = True
+                        
+                        # Capture snapshot of intruder
+                        print("[Main] Capturing intruder snapshot...")
+                        frame, face_box = fr.get_current_frame_and_face_box()
+                        snapshot_path = None
+                        if frame is not None:
+                            snapshot_path = capture_intruder_snapshot(frame, face_box)
+                            if snapshot_path:
+                                print(f"[Main] Snapshot captured: {snapshot_path}")
+                            else:
+                                print("[Main] Failed to capture snapshot")
+                        else:
+                            print("[Main] No frame available for snapshot")
+                        
+                        # Send email alert for Level 3 escalation with snapshot
+                        print("[Main] Sending email alert for Level 3 escalation...")
+                        email_sent = send_escalation_alert({
+                            'stage': 3,
+                            'timestamp': current_time,
+                            'message': escalation_messages[2]
+                        }, snapshot_path)
+                        if email_sent:
+                            print("[Main] Email alert sent successfully")
+                        else:
+                            print("[Main] Failed to send email alert")
                     elif time_since_escalation >= 8.0:  # After 8 seconds - complete escalation
                         print("[Main] ESCALATION COMPLETED - Restarting system")
                         escalation_stage = 0
                         escalation_message_spoken = False
                         # Reset TTS engine to prevent "run loop already started" errors
                         try:
-                            from src.tts import tts_manager
-                            if tts_manager.engine:
-                                if hasattr(tts_manager.engine, '_inLoop') and tts_manager.engine._inLoop:
-                                    tts_manager.engine.stop()
-                                # Force reinitialize TTS engine
-                                tts_manager.engine = None
-                                tts_manager._initialized = False
-                                print("[Main] TTS engine reset for escalation completion")
+                            # Import TTS manager from the correct module
+                            import src.tts as tts_module
+                            if hasattr(tts_module, 'tts_manager'):
+                                tts_manager = tts_module.tts_manager
+                                if tts_manager.engine:
+                                    if hasattr(tts_manager.engine, '_inLoop') and tts_manager.engine._inLoop:
+                                        tts_manager.engine.stop()
+                                    # Force reinitialize TTS engine
+                                    tts_manager.engine = None
+                                    tts_manager._initialized = False
+                                    print("[Main] TTS engine reset for escalation completion")
+                            else:
+                                print("[Main] TTS manager not found in module")
                         except Exception as e:
                             print(f"[Main] TTS reset error: {e}")
                         sm.set_state(State.OFF)

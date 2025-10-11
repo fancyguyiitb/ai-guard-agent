@@ -38,6 +38,10 @@ class FaceRecognizer:
         self.on_recognized_callback = None
         # callback when unknown face detected: fn()
         self.on_unknown_callback = None
+        
+        # For snapshot capture
+        self._current_frame = None
+        self._last_unknown_face_box = None
 
     def _load_embeddings(self):
         if os.path.exists(self.embeddings_path):
@@ -142,6 +146,8 @@ class FaceRecognizer:
                     time.sleep(0.05)
                     continue
 
+                # Store current frame for snapshot capture
+                self._current_frame = frame.copy()
                 current_time = time.time()
                 
                 # Only process faces if recognition is enabled and 1 second has passed
@@ -159,6 +165,8 @@ class FaceRecognizer:
                                 "Detected face: UNKNOWN (dist=%s, box=(%d,%d,%d,%d))",
                                 dist_str, top, right, bottom, left
                             )
+                            # Store face box for snapshot capture
+                            self._last_unknown_face_box = (top, right, bottom, left)
                             # Call unknown callback
                             if self.on_unknown_callback:
                                 try:
@@ -220,5 +228,14 @@ class FaceRecognizer:
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)
+    
+    def get_current_frame_and_face_box(self):
+        """
+        Get the current frame and last unknown face box for snapshot capture.
+        
+        Returns:
+            tuple: (frame, face_box) where face_box is (top, right, bottom, left)
+        """
+        return self._current_frame, self._last_unknown_face_box
 
 
