@@ -1,7 +1,18 @@
 """
-Snapshot capture utility for AI Room Guard System.
-Captures photos of intruders during escalation.
+AI Room Guard System - Snapshot Capture Module
+
+This module provides functionality for capturing and saving snapshots of intruders
+during security escalations. It crops face regions from camera frames and saves
+them with timestamped filenames for evidence collection.
+
+Features:
+- Face region cropping with padding
+- Timestamped filename generation
+- Automatic directory creation
+- Error handling and logging
+
 """
+
 import cv2
 import os
 import time
@@ -10,7 +21,12 @@ from pathlib import Path
 import logging
 
 class SnapshotCapture:
-    """Handles capturing and saving snapshots of intruders."""
+    """
+    Handles capturing and saving snapshots of intruders.
+    
+    Provides methods for cropping face regions from camera frames and saving
+    them as timestamped image files for security evidence.
+    """
     
     def __init__(self, snapshots_dir="data/logs/snapshots"):
         self.snapshots_dir = Path(snapshots_dir)

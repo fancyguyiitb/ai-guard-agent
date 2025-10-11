@@ -1,4 +1,20 @@
-# src/face_recog.py
+"""
+AI Room Guard System - Face Recognition Module
+
+This module handles face detection and recognition using the face_recognition library.
+It provides continuous face monitoring, known face identification, and unknown face detection
+with proper logging and state management.
+
+Features:
+- Continuous face detection and recognition
+- Known face identification with confidence thresholds
+- Unknown face detection and logging
+- Configurable recognition enable/disable
+- Frame and face box storage for snapshot capture
+- Thread-safe operation
+
+"""
+
 import os
 import cv2
 import pickle
@@ -18,32 +34,58 @@ from src.utils.config import EMBEDDINGS_PATH, ENROLL_DIR, FACE_MATCH_THRESHOLD, 
 from src.utils.logger import get_face_logger
 
 class FaceRecognizer:
-    def __init__(self, embeddings_path=EMBEDDINGS_PATH, enroll_dir=ENROLL_DIR, match_threshold=FACE_MATCH_THRESHOLD, webcam_index=WEBCAM_INDEX):
+    """
+    Face recognition system that detects and identifies faces from a webcam feed.
+    
+    This class provides continuous face monitoring with the ability to:
+    - Detect faces in real-time video streams
+    - Identify known faces using pre-computed embeddings
+    - Log unknown faces for security monitoring
+    - Enable/disable recognition dynamically
+    - Store frames and face boxes for snapshot capture
+    """
+    
+    def __init__(self, embeddings_path=EMBEDDINGS_PATH, enroll_dir=ENROLL_DIR, 
+                 match_threshold=FACE_MATCH_THRESHOLD, webcam_index=WEBCAM_INDEX):
+        """
+        Initialize the face recognizer.
+        
+        Args:
+            embeddings_path (str): Path to the face embeddings pickle file
+            enroll_dir (str): Directory containing enrolled face images
+            match_threshold (float): Distance threshold for face matching (lower = stricter)
+            webcam_index (int): Camera device index for OpenCV
+        """
         self.embeddings_path = embeddings_path
         self.enroll_dir = enroll_dir
         self.match_threshold = match_threshold
         self.webcam_index = webcam_index
         self.logger = get_face_logger()
 
-        # dict: name -> list of 128-d numpy arrays
+        # Known face embeddings: dict mapping name -> list of 128-d numpy arrays
         self.known_embeddings = {}
         self._load_embeddings()
 
-        # recognition thread control
+        # Threading control
         self._running = False
         self._thread = None
-        self._recognition_enabled = True
+        self._recognition_enabled = True  # Flag to control face processing
 
-        # callback when a trusted person recognized: fn(name, distance)
-        self.on_recognized_callback = None
-        # callback when unknown face detected: fn()
-        self.on_unknown_callback = None
+        # Callback functions
+        self.on_recognized_callback = None  # Called when trusted person recognized: fn(name, distance)
+        self.on_unknown_callback = None     # Called when unknown face detected: fn()
         
-        # For snapshot capture
+        # Snapshot capture support
         self._current_frame = None
         self._last_unknown_face_box = None
 
     def _load_embeddings(self):
+        """
+        Load pre-computed face embeddings from the pickle file.
+        
+        The embeddings file contains a dictionary mapping person names to lists of 
+        128-dimensional face encoding vectors.
+        """
         if os.path.exists(self.embeddings_path):
             try:
                 with open(self.embeddings_path, "rb") as f:
@@ -56,6 +98,11 @@ class FaceRecognizer:
             self.known_embeddings = {}
 
     def save_embeddings(self):
+        """
+        Save the current known face embeddings to the pickle file.
+        
+        Creates the directory if it doesn't exist and writes the embeddings dictionary.
+        """
         os.makedirs(os.path.dirname(self.embeddings_path), exist_ok=True)
         with open(self.embeddings_path, "wb") as f:
             pickle.dump(self.known_embeddings, f)
@@ -63,24 +110,38 @@ class FaceRecognizer:
 
     def add_embeddings_for(self, name, encodings):
         """
-        encodings: list of 1D numpy arrays (face encodings)
+        Add face embeddings for a specific person.
+        
+        Args:
+            name (str): Name of the person
+            encodings (list): List of 1D numpy arrays containing face encodings
         """
         if name in self.known_embeddings:
             self.known_embeddings[name].extend([e.tolist() for e in encodings])
         else:
             self.known_embeddings[name] = [e.tolist() for e in encodings]
-        # normalize back to numpy lists on save/load; we store lists to be pickle-safe
+        # Convert to lists for pickle safety, normalize back to numpy on load
         self.save_embeddings()
 
     def get_known_encodings(self):
-        # return dict name -> list of numpy arrays
+        """
+        Get all known face encodings as numpy arrays.
+        
+        Returns:
+            dict: Dictionary mapping person names to lists of numpy arrays (face encodings)
+        """
         return {name: [np.array(e) for e in lst] for name, lst in self.known_embeddings.items()}
 
     def recognize_frame(self, frame_bgr):
         """
-        frame_bgr: OpenCV BGR frame
-        returns: list of dicts for each detected face:
-          [{"name": "Alice" or "unknown", "distance": 0.42, "location": (top,right,bottom,left)} ...]
+        Recognize faces in a single frame.
+        
+        Args:
+            frame_bgr: OpenCV BGR frame to analyze
+            
+        Returns:
+            list: List of dictionaries for each detected face:
+                  [{"name": "Alice" or "unknown", "distance": 0.42, "location": (top,right,bottom,left)} ...]
         """
         results = []
         # Ensure RGB image is contiguous uint8 for dlib/face_recognition bindings
@@ -119,8 +180,15 @@ class FaceRecognizer:
     # ---- Webcam-based continuous recognition ----
     def start_recognition_loop(self, on_recognized=None, on_unknown=None, show_preview=False, preview_window_name="FaceRecog"):
         """
-        Starts thread that reads webcam frames and calls on_recognized(name, distance)
-        for recognized trusted persons (first detection per person will call callback).
+        Start continuous face recognition loop in a separate thread.
+        
+        Args:
+            on_recognized (callable): Callback function called when a trusted person is detected
+                                    Signature: on_recognized(name, distance)
+            on_unknown (callable): Callback function called when an unknown face is detected
+                                 Signature: on_unknown()
+            show_preview (bool): Whether to display the camera feed with face boxes
+            preview_window_name (str): Name of the preview window
         """
         if self._running:
             return
@@ -215,16 +283,31 @@ class FaceRecognizer:
             self.logger.info("Recognition loop stopped.")
 
     def enable_recognition(self):
-        """Enable face recognition processing"""
+        """
+        Enable face recognition processing.
+        
+        This allows the recognition loop to process faces and trigger callbacks.
+        The camera feed continues running regardless of this setting.
+        """
         self._recognition_enabled = True
         self.logger.info("Face recognition enabled")
 
     def disable_recognition(self):
-        """Disable face recognition processing (camera still runs)"""
+        """
+        Disable face recognition processing.
+        
+        This stops face processing and callback triggers while keeping the camera feed running.
+        Useful during escalation periods or when you want to pause recognition.
+        """
         self._recognition_enabled = False
         self.logger.info("Face recognition disabled")
 
     def stop_recognition(self):
+        """
+        Stop the recognition loop and clean up resources.
+        
+        This completely stops the background thread and releases the camera.
+        """
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)

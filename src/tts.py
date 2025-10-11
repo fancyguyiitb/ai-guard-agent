@@ -1,16 +1,47 @@
-# src/tts.py
+"""
+AI Room Guard System - Text-to-Speech Module
+
+This module provides text-to-speech functionality using pyttsx3.
+It handles voice synthesis for security alerts, greetings, and escalation messages.
+
+Features:
+- Asynchronous speech synthesis
+- Thread-safe operation
+- Automatic engine initialization
+- Female voice preference
+- Volume and rate control
+
+"""
+
 import pyttsx3
 import threading
 import time
 
 class TTSManager:
+    """
+    Text-to-Speech manager for voice synthesis.
+    
+    Provides thread-safe TTS functionality with automatic engine initialization
+    and configurable voice settings.
+    """
+    
     def __init__(self):
+        """
+        Initialize the TTS manager.
+        
+        Sets up the TTS engine with default configuration.
+        """
         self.engine = None
         self._initialized = False
         self._speaking = False
         
     def _initialize(self):
-        """Initialize the TTS engine if not already done"""
+        """
+        Initialize the TTS engine if not already done.
+        
+        Configures voice settings including preference for female voice,
+        speech rate, and volume level.
+        """
         if self._initialized:
             return
             
@@ -19,15 +50,15 @@ class TTSManager:
             # Configure voice settings
             voices = self.engine.getProperty('voices')
             if voices:
-                # Try to use a female voice if available, otherwise use default
+                # Try to use a female voice for more natural security announcements
                 for voice in voices:
                     if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
                         self.engine.setProperty('voice', voice.id)
                         break
             
-            # Set speech rate (words per minute)
+            # Set speech rate (words per minute) for clear announcements
             self.engine.setProperty('rate', 180)
-            # Set volume (0.0 to 1.0)
+            # Set volume (0.0 to 1.0) for audible but not overwhelming alerts
             self.engine.setProperty('volume', 0.8)
             
             self._initialized = True
@@ -38,7 +69,8 @@ class TTSManager:
             self._initialized = False
     
     def speak(self, text, async_mode=False):
-        """Speak the given text
+        """
+        Speak the given text using the TTS engine.
         
         Args:
             text (str): Text to speak
