@@ -1,21 +1,23 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
-*.mp4
+
+# Local environment files
+.env
+.env.local
+
+# Runtime media and logs
 *.wav
+*.mp4
 *.log
-*.jpg
-*.jpeg
-*.png
-*.gif
-*.bmp
-*.tiff
-*.ico
-*.webp
-*.svg
-*.heic
-*.heif
-*.heif
-*.env
-*.env.local
+data/logs/
+data/logs/snapshots/
+data/enrolled_faces/
+data/embeddings.pkl
+
+
+# OS/editor artifacts
+.DS_Store
+Thumbs.db
